@@ -1,0 +1,28 @@
+如果你愿意，我可以再给你一套**“以后每天只用 3 条命令提交代码”的极简工作流。****
+git add .
+git commit -m "feat: 你今天做了什么"
+git push
+就这三条，日常 90% 场景够用。
+
+第一次只需做一次初始化（一次性）
+git config --global user.name "你的名字"
+git config --global user.email "你的邮箱"
+git branch -M main
+git push -u origin main
+
+提交信息模板（省脑力）
+你可以直接套这 4 种前缀：
+
+feat: 新功能
+fix: 修 bug
+refactor: 重构（不改功能）
+docs: 文档修改
+示例：git commit -m "fix: 修复数组越界判断"
+
+一个很实用的小升级（可选）
+每天开工前先拉一次最新代码，避免冲突：
+git pull --rebase
+所以你可以记成：
+开工 1 条：git pull --rebase
+收工 3 条：add → commit → push
+

@@ -20,6 +20,8 @@ class Point:
     def __str__(self):
         return f"Point({self.x}, {self.y})"
 
+# 下面是 Rectangle 类的实现
+# 注意：这里没有使用 @dataclass，因为我们需要自定义方法和字符串表示
 class Rectangle:
     def __init__(self, bottom_left, top_right):
         self.bottom_left = bottom_left
