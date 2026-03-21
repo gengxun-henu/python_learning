@@ -1,0 +1,10 @@
+cat > .gitignore << 'EOF'
+build/
+*.o
+*.out
+*.a
+*.so
+*.exe
+compile_commands.json
+.vscode/
+EOF
