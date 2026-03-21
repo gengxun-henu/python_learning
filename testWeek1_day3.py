@@ -33,6 +33,8 @@ def count_file(filename):
 所有输出尽量改成 f-string
 """
 
+# 用推导式统计单词频率
+# 下面是 count_file_comprehension 函数的实现
 def count_file_comprehension(filename):
     with open(filename, 'r') as file:
         text = file.read()
