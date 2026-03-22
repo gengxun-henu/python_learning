@@ -26,3 +26,6 @@ git pull --rebase
 开工 1 条：git pull --rebase
 收工 3 条：add → commit → push
 
+
+#####################################
+已经配置好SSH方式了，连接
