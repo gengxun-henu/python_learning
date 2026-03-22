@@ -36,11 +36,14 @@ def count_file(filename):
 # 用推导式统计单词频率
 # 下面是 count_file_comprehension 函数的实现
 
-#TODO: 添加文件不存在时的异常处理
 def count_file_comprehension(filename):
-    with open(filename, 'r') as file:
-        text = file.read()
-        
+    try:
+        with open(filename, 'r') as file:
+            text = file.read()
+    except FileNotFoundError:
+        print(f"错误：文件 '{filename}' 不存在，请检查文件名后重试。")
+        return
+
     lines = text.splitlines()
     words = text.split()
     characters = len(text)
