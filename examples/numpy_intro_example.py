@@ -50,6 +50,7 @@ def main() -> None:
     print("第一行:", matrix[0])
     print("第二列:", matrix[:, 1])
     print("右下角 2x2 子矩阵:\n", matrix[1:, 1:])
+    print("左上角 2x2 子矩阵:\n", matrix[:2, :2])
 
     print("\n" + "=" * 60)
     print("4) 向量化运算")
