@@ -8,14 +8,27 @@
   # 模式 2：使用用户提供的真实图像
   python3 examples/sift_image_matching.py --img1 path/to/image1.jpg --img2 path/to/image2.jpg
 
+  # 使用 FLANN 匹配器
+  python3 examples/sift_image_matching.py --matcher flann
+
+  # 使用 cross-check 匹配模式（适用于非重叠区域图像）
+  python3 examples/sift_image_matching.py --match-mode crosscheck
+
+  # 输出匹配结果图像
+  python3 examples/sift_image_matching.py --draw-matches output.png
+
+  # 使用基础矩阵进行 RANSAC 过滤
+  python3 examples/sift_image_matching.py --ransac-method fundamental
+
 本文件重点演示：
 1. 用 OpenCV 构造两幅测试图像（原图 + 透视变换图），或读取用户提供的图像
 2. 用 SIFT 检测关键点并提取描述子
 3. 根据灰度阈值和半径过滤关键点（过滤掉靠近低灰度像素的特征点）
-4. 用 BFMatcher（暴力匹配）对描述子进行匹配
-5. 用 Lowe's ratio test 筛选良好匹配
-6. 用 RANSAC 估计单应矩阵，过滤离群点（outliers）
-7. 打印各阶段匹配数量，观察过滤效果
+4. 用 BFMatcher 或 FLANN 匹配器对描述子进行匹配
+5. 用 Lowe's ratio test 或 cross-check 模式筛选匹配
+6. 用 RANSAC 估计单应矩阵或基础矩阵，过滤离群点（outliers）
+7. 可选输出匹配结果可视化图像
+8. 打印各阶段匹配数量，观察过滤效果
 
 自动化测试：
 - 单元测试：`tests/unit/test_sift_image_matching_unit.py`
@@ -26,6 +39,7 @@
 修改记录:
 - Gengxun, 2026-03-24: 增加 ratio-threshold 参数自定义功能，以及相应的功能测试和非法值测试。
 - Gengxun, 2026-03-24: 增加 invalid-gray-threshold 和 invalid-radius 参数，用于过滤靠近低灰度像素的特征点。
+- Gengxun, 2026-03-24: 增加 FLANN 匹配器、cross-check 模式、多种 RANSAC 方法、匹配结果可视化输出。
 """
 
 from __future__ import annotations
@@ -35,6 +49,14 @@ import sys
 
 import numpy as np
 import cv2
+
+
+# ──────────────────────────────────────────────────────────────
+# FLANN 匹配器常量
+# ──────────────────────────────────────────────────────────────
+FLANN_INDEX_KDTREE = 1
+FLANN_TREES = 5
+FLANN_CHECKS = 50
 
 
 # ──────────────────────────────────────────────────────────────
@@ -265,32 +287,135 @@ def match_features(
     return len(all_pairs), good_matches
 
 
+def match_features_flann(
+    des1: np.ndarray,
+    des2: np.ndarray,
+    ratio_threshold: float = 0.75,
+) -> tuple[int, list[cv2.DMatch]]:
+    """用 FLANN 匹配器 + Lowe's ratio test 进行特征匹配。
+
+    FLANN（Fast Library for Approximate Nearest Neighbors）使用 KD-Tree
+    索引加速最近邻搜索，适合大规模特征匹配。
+
+    Parameters
+    ----------
+    des1, des2 : np.ndarray
+        两幅图像的描述子矩阵。
+    ratio_threshold : float
+        Lowe 比例测试的阈值，默认 0.75。
+
+    Returns
+    -------
+    num_candidates : int
+        FLANN knnMatch 返回的候选匹配对数。
+    good_matches : list[cv2.DMatch]
+        通过 ratio test 筛选后的良好匹配。
+    """
+    index_params = {"algorithm": FLANN_INDEX_KDTREE, "trees": FLANN_TREES}
+    search_params = {"checks": FLANN_CHECKS}
+    flann = cv2.FlannBasedMatcher(index_params, search_params)
+    all_pairs = flann.knnMatch(des1, des2, k=2)
+
+    # Lowe's ratio test
+    good_matches: list[cv2.DMatch] = []
+    for pair in all_pairs:
+        if len(pair) == 2:
+            m, n = pair
+            if m.distance < ratio_threshold * n.distance:
+                good_matches.append(m)
+
+    return len(all_pairs), good_matches
+
+
+def match_features_crosscheck(
+    des1: np.ndarray,
+    des2: np.ndarray,
+) -> tuple[int, list[cv2.DMatch]]:
+    """用 BFMatcher + cross-check 模式进行特征匹配。
+
+    cross-check 模式不依赖 ratio test，适用于两幅图像可能不属于
+    同一区域的场景。只有当 A 的最佳匹配是 B 且 B 的最佳匹配也是 A 时
+    才保留该匹配。
+
+    Parameters
+    ----------
+    des1, des2 : np.ndarray
+        两幅图像的描述子矩阵。
+
+    Returns
+    -------
+    num_candidates : int
+        参与匹配的描述子数量（des1 的行数）。
+    good_matches : list[cv2.DMatch]
+        通过 cross-check 筛选后的匹配。
+    """
+    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+    matches = bf.match(des1, des2)
+    matches = sorted(matches, key=lambda m: m.distance)
+    return des1.shape[0], list(matches)
+
+
+def draw_match_image(
+    img1: np.ndarray,
+    img2: np.ndarray,
+    kp1: list[cv2.KeyPoint],
+    kp2: list[cv2.KeyPoint],
+    matches: list[cv2.DMatch],
+    output_path: str,
+) -> None:
+    """将匹配结果绘制到一幅拼接图像中并保存。
+
+    Parameters
+    ----------
+    img1, img2 : np.ndarray
+        两幅灰度图像。
+    kp1, kp2 : list[cv2.KeyPoint]
+        两幅图像的关键点列表。
+    matches : list[cv2.DMatch]
+        匹配结果列表。
+    output_path : str
+        输出图像文件路径。
+    """
+    result_img = cv2.drawMatches(
+        img1, kp1, img2, kp2, matches, None,
+        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+    )
+    cv2.imwrite(output_path, result_img)
+    print(f"匹配结果图像已保存到: {output_path}")
+
+
 def filter_with_ransac(
     kp1: list[cv2.KeyPoint],
     kp2: list[cv2.KeyPoint],
     good_matches: list[cv2.DMatch],
     ransac_threshold: float = 5.0,
+    method: str = "homography",
 ) -> tuple[np.ndarray | None, list[cv2.DMatch]]:
-    """用 RANSAC 估计单应矩阵，过滤离群点。
+    """用 RANSAC 估计几何变换矩阵，过滤离群点。
 
     Parameters
     ----------
     kp1, kp2 : list[cv2.KeyPoint]
         两幅图像的关键点列表。
     good_matches : list[cv2.DMatch]
-        通过 ratio test 的良好匹配。
+        通过 ratio test 或 cross-check 的良好匹配。
     ransac_threshold : float
         RANSAC 重投影误差阈值（像素），默认 5.0。
+    method : str
+        RANSAC 方法，可选 ``"homography"``（单应矩阵，默认）或
+        ``"fundamental"``（基础矩阵）。
 
     Returns
     -------
-    H : np.ndarray | None
-        估计到的单应矩阵（3×3），若匹配点不足则为 None。
+    matrix : np.ndarray | None
+        估计到的变换矩阵，若匹配点不足则为 None。
+        homography 返回 3×3 单应矩阵，fundamental 返回 3×3 基础矩阵。
     inlier_matches : list[cv2.DMatch]
         RANSAC 认定为内点的匹配。
     """
-    if len(good_matches) < 4:
-        print("  警告：良好匹配点不足 4 个，无法估计单应矩阵。")
+    min_matches = 4 if method == "homography" else 8
+    if len(good_matches) < min_matches:
+        print(f"  警告：良好匹配点不足 {min_matches} 个，无法估计变换矩阵。")
         return None, []
 
     src_pts = np.float32(
@@ -300,20 +425,28 @@ def filter_with_ransac(
         [kp2[m.trainIdx].pt for m in good_matches]
     ).reshape(-1, 1, 2)
 
-    H, mask = cv2.findHomography(
-        src_pts,
-        dst_pts,
-        cv2.RANSAC,
-        ransac_threshold,
-    )
+    if method == "fundamental":
+        matrix, mask = cv2.findFundamentalMat(
+            src_pts,
+            dst_pts,
+            cv2.FM_RANSAC,
+            ransac_threshold,
+        )
+    else:
+        matrix, mask = cv2.findHomography(
+            src_pts,
+            dst_pts,
+            cv2.RANSAC,
+            ransac_threshold,
+        )
 
     if mask is None:
-        return H, []
+        return matrix, []
 
     inlier_matches = [
         m for m, flag in zip(good_matches, mask.ravel()) if flag
     ]
-    return H, inlier_matches
+    return matrix, inlier_matches
 
 
 def ratio_threshold_type(value: str) -> float:
@@ -441,7 +574,6 @@ def parse_args() -> argparse.Namespace:
         default=0.75,
         help="Lowe ratio test 的阈值，必须在 0 到 1 之间，默认 0.75",
     )
-    """添加RANSAC ratio_threshold参数，允许用户自定义Lowe ratio test的阈值，以便在功能测试中验证不同ratio_threshold对匹配结果的影响。"""
     parser.add_argument(
         "--ransac-threshold",
         metavar="浮点数",
@@ -462,6 +594,30 @@ def parse_args() -> argparse.Namespace:
         type=invalid_radius_type,
         default=5.0,
         help="无效值半径（像素），特征点距离无效值小于此半径时将被过滤，默认 5.0",
+    )
+    parser.add_argument(
+        "--matcher",
+        choices=["bf", "flann"],
+        default="bf",
+        help="匹配器类型：bf（BFMatcher，默认）或 flann（FLANN 匹配器）",
+    )
+    parser.add_argument(
+        "--match-mode",
+        choices=["ratio", "crosscheck"],
+        default="ratio",
+        help="匹配模式：ratio（Lowe ratio test，默认）或 crosscheck（交叉验证，适用于非重叠区域图像）",
+    )
+    parser.add_argument(
+        "--ransac-method",
+        choices=["homography", "fundamental"],
+        default="homography",
+        help="RANSAC 方法：homography（单应矩阵，默认）或 fundamental（基础矩阵）",
+    )
+    parser.add_argument(
+        "--draw-matches",
+        metavar="路径",
+        default=None,
+        help="将匹配结果可视化并保存到指定文件路径（如 output.png）",
     )
     return parser.parse_args()
 
@@ -488,11 +644,6 @@ def main() -> None:
         print(f"图像 2: {args.img2}  尺寸: {img2.shape}")
         H_true = None  # 真实图像无已知单应矩阵
     else:
-        # 暂不支持合成图像，直接使用真实图像，可以作为一个实际功能程序应用
-        #print("错误：--img1 和 --img2 必须同时提供，或都不提供。")
-        #print("示例：python3 examples/sift_image_matching.py --img1 a.jpg --img2 b.jpg")
-        #sys.exit(1)
-
         print("1) 生成合成测试图像（未传入 --img1/--img2，使用默认演示）")
         print("=" * 60)
         img1, img2, H_true = make_test_images(size=400)
@@ -535,37 +686,72 @@ def main() -> None:
         sys.exit(1)
 
     print("\n" + "=" * 60)
-    print("4) BFMatcher 暴力匹配 + Lowe's ratio test")
-    print("=" * 60)
-    print(f"ratio_threshold: {args.ratio_threshold}")
-    all_matches, good_matches = match_features(des1, des2, ratio_threshold=args.ratio_threshold)
-    print(f"原始候选匹配数 (knnMatch k=2): {all_matches} 对")
-    print(f"通过 ratio test 的良好匹配数:    {len(good_matches)} 对")
+    match_mode = args.match_mode
+    matcher_type = args.matcher
+    if match_mode == "crosscheck":
+        print("4) BFMatcher 交叉验证匹配（cross-check 模式）")
+        print("=" * 60)
+        all_matches, good_matches = match_features_crosscheck(des1, des2)
+        print(f"参与匹配的描述子数量: {all_matches}")
+        print(f"通过 cross-check 的匹配数: {len(good_matches)} 对")
+    elif matcher_type == "flann":
+        print("4) FLANN 匹配器 + Lowe's ratio test")
+        print("=" * 60)
+        print(f"ratio_threshold: {args.ratio_threshold}")
+        all_matches, good_matches = match_features_flann(
+            des1, des2, ratio_threshold=args.ratio_threshold
+        )
+        print(f"原始候选匹配数 (knnMatch k=2): {all_matches} 对")
+        print(f"通过 ratio test 的良好匹配数:    {len(good_matches)} 对")
+    else:
+        print("4) BFMatcher 暴力匹配 + Lowe's ratio test")
+        print("=" * 60)
+        print(f"ratio_threshold: {args.ratio_threshold}")
+        all_matches, good_matches = match_features(
+            des1, des2, ratio_threshold=args.ratio_threshold
+        )
+        print(f"原始候选匹配数 (knnMatch k=2): {all_matches} 对")
+        print(f"通过 ratio test 的良好匹配数:    {len(good_matches)} 对")
 
     print("\n" + "=" * 60)
-    print("5) RANSAC 过滤离群点")
+    ransac_method = args.ransac_method
+    method_label = "单应矩阵" if ransac_method == "homography" else "基础矩阵"
+    print(f"5) RANSAC 过滤离群点（{method_label}）")
     print("=" * 60)
     H_est, inlier_matches = filter_with_ransac(
-        kp1, kp2, good_matches, ransac_threshold=args.ransac_threshold
+        kp1, kp2, good_matches,
+        ransac_threshold=args.ransac_threshold,
+        method=ransac_method,
     )
     if H_est is not None:
         print(f"RANSAC 内点匹配数:  {len(inlier_matches)} 对")
         print(f"RANSAC 过滤离群点:  {len(good_matches) - len(inlier_matches)} 对")
-        print("估计的单应矩阵 H_est:")
+        print(f"估计的{method_label} ({ransac_method}):")
         print(np.round(H_est, 4))
 
-        # 仅在合成图像模式下才有真实单应矩阵可供对比
-        if H_true is not None:
+        # 仅在合成图像 + homography 模式下才有真实单应矩阵可供对比
+        if H_true is not None and ransac_method == "homography":
             diff = np.abs(H_true - H_est)
             print(f"\nH_true 与 H_est 的最大绝对差: {diff.max():.4f}")
     else:
-        print("单应矩阵估计失败。")
+        print(f"{method_label}估计失败。")
+
+    # 绘制匹配结果图像
+    if args.draw_matches is not None:
+        print("\n" + "=" * 60)
+        print("*) 绘制匹配结果图像")
+        print("=" * 60)
+        matches_to_draw = inlier_matches if inlier_matches else good_matches
+        draw_match_image(img1, img2, kp1, kp2, matches_to_draw, args.draw_matches)
 
     print("\n" + "=" * 60)
     print("6) 小结")
     print("=" * 60)
+    print(f"  匹配器: {matcher_type}")
+    print(f"  匹配模式: {match_mode}")
+    print(f"  RANSAC 方法: {ransac_method}")
     print(f"  关键点（img1 / img2）: {len(kp1)} / {len(kp2)}")
-    print(f"  ratio test 后良好匹配: {len(good_matches)}")
+    print(f"  匹配后良好匹配: {len(good_matches)}")
     print(f"  RANSAC 后内点匹配:     {len(inlier_matches)}")
     inlier_rate = len(inlier_matches) / len(good_matches) * 100 if good_matches else 0
     print(f"  内点率:                {inlier_rate:.1f}%")
