@@ -37,6 +37,8 @@ def count_file(filename):
 # 下面是 count_file_comprehension 函数的实现
 
 def count_file_comprehension(filename):
+    """使用文件上下文管理器和 Counter 来统计文件中的行数、单词数、字符数以及前 10 个高频词。
+    """
     try:
         with open(filename, 'r') as file:
             text = file.read()

@@ -42,6 +42,8 @@ def find_top_student(lst):
 """
 
 def find_top_student_comprehension(lst):
+    """使用字典推导式来创建学生成绩字典，并使用 max 函数找出最高分学生。
+    """
     students = {student['name']: student['score'] for student in lst}
     top_student = max(students, key=students.get)
     return top_student, students[top_student]

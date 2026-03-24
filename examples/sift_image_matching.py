@@ -15,6 +15,14 @@
 4. 用 Lowe's ratio test 筛选良好匹配
 5. 用 RANSAC 估计单应矩阵，过滤离群点（outliers）
 6. 打印各阶段匹配数量，观察 RANSAC 的过滤效果
+
+自动化测试：
+- 单元测试：`tests/unit/test_sift_image_matching_unit.py`
+- 功能测试：`tests/functional/test_sift_image_matching_functional.py`
+- 建议在仓库根目录并激活 `conda asp360_new` 后运行：
+    `python -m pytest tests/unit/test_sift_image_matching_unit.py tests/functional/test_sift_image_matching_functional.py -q`
+
+修改记录, Gengxun, 2026-03-24: 增加ratio-threshold参数自定义功能，以及相应的功能测试和非法值测试。
 """
 
 from __future__ import annotations
@@ -234,6 +242,18 @@ def filter_with_ransac(
     return H, inlier_matches
 
 
+def ratio_threshold_type(value: str) -> float:
+    """解析并校验 Lowe ratio test 阈值。"""
+    try:
+        ratio = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("ratio_threshold 必须是浮点数。") from exc
+
+    if not (0.0 < ratio < 1.0):
+        raise argparse.ArgumentTypeError("ratio_threshold 必须在 0 到 1 之间。")
+
+    return ratio
+
 # ──────────────────────────────────────────────────────────────
 # 主流程
 # ──────────────────────────────────────────────────────────────
@@ -260,6 +280,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="第二幅图像的文件路径（train 图）",
     )
+    parser.add_argument(
+        "--ratio-threshold",
+        metavar="浮点数",
+        type=ratio_threshold_type,
+        default=0.75,
+        help="Lowe ratio test 的阈值，必须在 0 到 1 之间，默认 0.75",
+    )
     return parser.parse_args()
 
 
@@ -285,6 +312,11 @@ def main() -> None:
         print(f"图像 2: {args.img2}  尺寸: {img2.shape}")
         H_true = None  # 真实图像无已知单应矩阵
     else:
+        # 暂不支持合成图像，直接使用真实图像，可以作为一个实际功能程序应用
+        print("错误：--img1 和 --img2 必须同时提供，或都不提供。")
+        print("示例：python3 examples/sift_image_matching.py --img1 a.jpg --img2 b.jpg")
+        sys.exit(1)
+
         print("1) 生成合成测试图像（未传入 --img1/--img2，使用默认演示）")
         print("=" * 60)
         img1, img2, H_true = make_test_images(size=400)
@@ -310,7 +342,8 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("3) BFMatcher 暴力匹配 + Lowe's ratio test")
     print("=" * 60)
-    all_matches, good_matches = match_features(des1, des2, ratio_threshold=0.75)
+    print(f"ratio_threshold: {args.ratio_threshold}")
+    all_matches, good_matches = match_features(des1, des2, ratio_threshold=args.ratio_threshold)
     print(f"原始候选匹配数 (knnMatch k=2): {all_matches} 对")
     print(f"通过 ratio test 的良好匹配数:    {len(good_matches)} 对")
 
@@ -343,12 +376,6 @@ def main() -> None:
     print(f"  内点率:                {inlier_rate:.1f}%")
     print()
     print("你可以继续练习：")
-    print("  - 修改 ratio_threshold，观察匹配数量变化")
-    print("  - 修改 ransac_threshold，观察内点率变化")
-    print("  - 使用自己的图像对（同一场景不同角度/光照）：")
-    print("      python3 examples/sift_image_matching.py --img1 a.jpg --img2 b.jpg")
-    print("  - 将结果可视化: cv2.drawMatches(...) 保存为 PNG")
-
-
+  
 if __name__ == "__main__":
     main()

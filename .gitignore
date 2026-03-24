@@ -1,4 +1,5 @@
 build/
+learning_python_plans/
 *.o
 *.out
 *.a
@@ -8,3 +9,4 @@ compile_commands.json
 .vscode/
 __pycache__/
 *.pyc
+CLAUDE.local.md
