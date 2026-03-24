@@ -101,6 +101,83 @@ python -m pytest tests/unit/test_sift_image_matching_unit.py -q
 python -m pytest tests/functional/test_sift_image_matching_functional.py -q
 ```
 
+## GitHub Actions 自动测试说明
+
+仓库已配置 GitHub Actions 工作流：
+
+- 工作流文件：`.github/workflows/example-tests.yml`
+- 工作流名称：`example-tests`
+
+### 触发条件
+
+当以下文件发生变更并 `push` 到 GitHub 时，会自动触发测试：
+
+- `examples/**/*.py`
+- `tests/**/*.py`
+- `requirements.txt`
+- `.github/workflows/example-tests.yml`
+
+此外，当你向 `main` 分支发起 Pull Request，且上述路径发生变化时，也会自动触发。
+
+### 自动测试内容
+
+GitHub Actions 会在两个 Linux 运行环境中分别执行测试：
+
+- `ubuntu-20.04`
+- `ubuntu-22.04`
+
+每次运行会自动完成：
+
+1. 检出仓库代码
+2. 安装 Python 3.12
+3. 升级 `pip`
+4. 根据 `requirements.txt` 安装依赖
+5. 输出 Python、OpenCV、pytest 版本信息
+6. 运行单元测试
+7. 运行功能测试
+
+### 在 GitHub 网页端查看结果
+
+推送代码后，你可以在仓库页面中打开：
+
+- `Actions` 标签页
+
+然后查看 `example-tests` 工作流的运行结果。
+
+如果测试失败，日志中通常可以看到：
+
+- 当前运行的 Ubuntu 版本
+- Python 版本
+- OpenCV 版本
+- pytest 版本
+- 失败的测试名称和报错信息
+
+### 本地命令与 CI 的关系
+
+GitHub Actions 里执行的测试命令与本地保持一致，仍然使用：
+
+```bash
+python -m pytest tests/unit/test_sift_image_matching_unit.py -q
+python -m pytest tests/functional/test_sift_image_matching_functional.py -q
+```
+
+这意味着：
+
+- 本地先跑通，通常 CI 更容易通过
+- 如果 CI 失败，可以优先在本地重跑相同命令复现问题
+
+### 当前阶段说明
+
+当前已实现的是 **CI（持续集成）**：自动安装依赖并运行测试。
+
+暂时还没有加入：
+
+- 自动发布 Release
+- 自动部署网页
+- 自动上传构建产物
+
+如果后续你需要，再可以继续扩展到更完整的 CD 流程。
+
 ## 这些测试分别测什么
 
 ### 单元测试

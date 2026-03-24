@@ -254,6 +254,28 @@ def ratio_threshold_type(value: str) -> float:
 
     return ratio
 
+def ransac_threshold_type(value: str) -> float:
+    """解析并校验 RANSAC 重投影误差阈值。
+    Parameters:
+    value : str
+        输入的字符串值，应该能转换为正浮点数。
+    Returns:
+    float
+        转换后的 RANSAC 阈值。
+    Raises:
+    argparse.ArgumentTypeError
+        如果输入无法转换为正浮点数，或值不合法（<=0），则抛出异常。
+    """    
+    try:
+        threshold = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("ransac_threshold 必须是浮点数。") from exc
+
+    if threshold <= 0.0:
+        raise argparse.ArgumentTypeError("ransac_threshold 必须是正数。")
+
+    return threshold
+
 # ──────────────────────────────────────────────────────────────
 # 主流程
 # ──────────────────────────────────────────────────────────────
@@ -287,6 +309,14 @@ def parse_args() -> argparse.Namespace:
         default=0.75,
         help="Lowe ratio test 的阈值，必须在 0 到 1 之间，默认 0.75",
     )
+    """添加RANSAC ratio_threshold参数，允许用户自定义Lowe ratio test的阈值，以便在功能测试中验证不同ratio_threshold对匹配结果的影响。"""
+    parser.add_argument(
+        "--ransac-threshold",
+        metavar="浮点数",
+        type=ransac_threshold_type,
+        default=5.0,
+        help="RANSAC 重投影误差阈值（像素），默认 5.0",
+    )
     return parser.parse_args()
 
 
@@ -313,9 +343,9 @@ def main() -> None:
         H_true = None  # 真实图像无已知单应矩阵
     else:
         # 暂不支持合成图像，直接使用真实图像，可以作为一个实际功能程序应用
-        print("错误：--img1 和 --img2 必须同时提供，或都不提供。")
-        print("示例：python3 examples/sift_image_matching.py --img1 a.jpg --img2 b.jpg")
-        sys.exit(1)
+        #print("错误：--img1 和 --img2 必须同时提供，或都不提供。")
+        #print("示例：python3 examples/sift_image_matching.py --img1 a.jpg --img2 b.jpg")
+        #sys.exit(1)
 
         print("1) 生成合成测试图像（未传入 --img1/--img2，使用默认演示）")
         print("=" * 60)
@@ -351,7 +381,7 @@ def main() -> None:
     print("4) RANSAC 过滤离群点")
     print("=" * 60)
     H_est, inlier_matches = filter_with_ransac(
-        kp1, kp2, good_matches, ransac_threshold=5.0
+        kp1, kp2, good_matches, ransac_threshold=args.ransac_threshold
     )
     if H_est is not None:
         print(f"RANSAC 内点匹配数:  {len(inlier_matches)} 对")

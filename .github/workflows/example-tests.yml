@@ -1,0 +1,55 @@
+name: example-tests
+
+on:
+  push:
+    paths:
+      - 'examples/**/*.py'
+      - 'tests/**/*.py'
+      - 'requirements.txt'
+      - '.github/workflows/example-tests.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'examples/**/*.py'
+      - 'tests/**/*.py'
+      - 'requirements.txt'
+      - '.github/workflows/example-tests.yml'
+
+jobs:
+  sift-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-20.04
+          - ubuntu-22.04
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Show environment info
+        run: |
+          echo "Runner OS: $RUNNER_OS"
+          python --version
+          python -c "import cv2, pytest; print('OpenCV:', cv2.__version__); print('pytest:', pytest.__version__)"
+
+      - name: Run unit tests
+        run: python -m pytest tests/unit/test_sift_image_matching_unit.py -q
+
+      - name: Run functional tests
+        run: python -m pytest tests/functional/test_sift_image_matching_functional.py -q
