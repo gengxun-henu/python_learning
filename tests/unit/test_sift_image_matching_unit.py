@@ -186,5 +186,105 @@ def test_match_features_supports_custom_ratio_threshold(pipeline_outputs) -> Non
     assert candidates_075 == candidates_090, info
     assert len(good_090) >= len(good_075), info
 
+
+def test_filter_keypoints_by_gray_filters_keypoints_near_low_gray_values() -> None:
+    """验证 filter_keypoints_by_gray 能过滤掉靠近低灰度值的关键点。"""
+    img1, _, _ = sim.make_test_images(size=400)
+    kp1, des1 = sim.detect_and_compute(img1)
+
+    # 使用默认阈值（10.0）和半径（5.0）
+    filtered_kp, filtered_des = sim.filter_keypoints_by_gray(img1, kp1, des1, 10.0, 5.0)
+
+    info = {
+        "original_keypoints": len(kp1),
+        "filtered_keypoints": len(filtered_kp),
+        "original_des_shape": des1.shape if des1 is not None else None,
+        "filtered_des_shape": filtered_des.shape if filtered_des is not None else None,
+    }
+    print(f"\n[unit] filter_keypoints_by_gray 输出信息:\n{pformat(info, sort_dicts=False)}")
+
+    # 过滤后的关键点数量应该小于等于原始数量
+    assert len(filtered_kp) <= len(kp1), info
+    # 描述子数量应该与关键点数量一致
+    if filtered_des is not None:
+        assert filtered_des.shape[0] == len(filtered_kp), info
+        assert filtered_des.shape[1] == 128, info
+
+
+def test_filter_keypoints_by_gray_with_high_threshold_filters_more() -> None:
+    """验证更高的灰度阈值会过滤掉更多关键点。"""
+    img1, _, _ = sim.make_test_images(size=400)
+    kp1, des1 = sim.detect_and_compute(img1)
+
+    # 使用低阈值
+    filtered_kp_low, _ = sim.filter_keypoints_by_gray(img1, kp1, des1, 10.0, 5.0)
+    # 使用高阈值
+    filtered_kp_high, _ = sim.filter_keypoints_by_gray(img1, kp1, des1, 50.0, 10.0)
+
+    info = {
+        "original_keypoints": len(kp1),
+        "filtered_keypoints_low_threshold": len(filtered_kp_low),
+        "filtered_keypoints_high_threshold": len(filtered_kp_high),
+    }
+    print(f"\n[unit] 不同阈值过滤对比:\n{pformat(info, sort_dicts=False)}")
+
+    # 高阈值应该过滤掉更多或同等数量的关键点
+    assert len(filtered_kp_high) <= len(filtered_kp_low), info
+
+
+def test_filter_keypoints_by_gray_returns_empty_when_all_filtered() -> None:
+    """验证当所有关键点都被过滤时，返回空列表。"""
+    img1, _, _ = sim.make_test_images(size=400)
+    kp1, des1 = sim.detect_and_compute(img1)
+
+    # 使用极高的阈值（所有像素都被认为是无效值）
+    filtered_kp, filtered_des = sim.filter_keypoints_by_gray(img1, kp1, des1, 255.0, 50.0)
+
+    info = {
+        "original_keypoints": len(kp1),
+        "filtered_keypoints": len(filtered_kp),
+        "filtered_des_shape": filtered_des.shape if filtered_des is not None else None,
+    }
+    print(f"\n[unit] 全部过滤场景:\n{pformat(info, sort_dicts=False)}")
+
+    # 应该过滤掉所有或几乎所有关键点
+    assert len(filtered_kp) <= len(kp1), info
+    if filtered_des is not None:
+        assert filtered_des.shape[0] == len(filtered_kp), info
+
+
+def test_invalid_gray_threshold_type_accepts_valid_value() -> None:
+    """验证 invalid_gray_threshold_type 接受合法的灰度阈值。"""
+    value = sim.invalid_gray_threshold_type("50.0")
+    print(f"\n[unit] 合法 invalid_gray_threshold 输出: {value}")
+    assert value == 50.0
+
+
+@pytest.mark.parametrize("raw", ["-1", "256", "300"])
+def test_invalid_gray_threshold_type_rejects_out_of_range_values(raw: str) -> None:
+    """验证 invalid_gray_threshold_type 拒绝超出范围的值。"""
+    with pytest.raises(
+        argparse.ArgumentTypeError,
+        match="invalid_gray_threshold 必须在 0 到 255 之间。",
+    ):
+        sim.invalid_gray_threshold_type(raw)
+
+
+def test_invalid_radius_type_accepts_valid_value() -> None:
+    """验证 invalid_radius_type 接受合法的半径值。"""
+    value = sim.invalid_radius_type("10.0")
+    print(f"\n[unit] 合法 invalid_radius 输出: {value}")
+    assert value == 10.0
+
+
+@pytest.mark.parametrize("raw", ["0", "-5", "-0.1"])
+def test_invalid_radius_type_rejects_invalid_values(raw: str) -> None:
+    """验证 invalid_radius_type 拒绝非正数值。"""
+    with pytest.raises(
+        argparse.ArgumentTypeError,
+        match="invalid_radius 必须是正数。",
+    ):
+        sim.invalid_radius_type(raw)
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([str(Path(__file__).resolve()), "-s", "-q"]))

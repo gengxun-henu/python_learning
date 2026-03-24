@@ -118,6 +118,62 @@ def test_script_fails_with_invalid_ratio_threshold(bad_value: str) -> None:
     assert "ratio_threshold 必须在 0 到 1 之间。" in result.stderr or "ratio_threshold 必须在 0 到 1 之间。" in result.stdout, info
 
 
+def test_script_runs_successfully_with_custom_invalid_gray_threshold() -> None:
+    """验证自定义灰度阈值参数能正常运行。"""
+    result = _run_script("--invalid-gray-threshold", "50.0")
+    info = _format_result_info("custom_invalid_gray_threshold", result)
+    print("\n[functional] 自定义 invalid_gray_threshold 场景摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "invalid_gray_threshold: 50.0" in result.stdout, info
+    assert "根据灰度阈值过滤关键点" in result.stdout, info
+
+
+def test_script_runs_successfully_with_custom_invalid_radius() -> None:
+    """验证自定义无效值半径参数能正常运行。"""
+    result = _run_script("--invalid-radius", "10.0")
+    info = _format_result_info("custom_invalid_radius", result)
+    print("\n[functional] 自定义 invalid_radius 场景摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "invalid_radius: 10.0" in result.stdout, info
+    assert "根据灰度阈值过滤关键点" in result.stdout, info
+
+
+def test_script_runs_with_both_gray_filtering_parameters() -> None:
+    """验证同时使用两个灰度过滤参数。"""
+    result = _run_script("--invalid-gray-threshold", "50.0", "--invalid-radius", "10.0")
+    info = _format_result_info("both_gray_filtering_params", result)
+    print("\n[functional] 同时使用灰度过滤参数场景摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "invalid_gray_threshold: 50.0" in result.stdout, info
+    assert "invalid_radius: 10.0" in result.stdout, info
+    assert "根据灰度阈值过滤关键点" in result.stdout, info
+
+
+@pytest.mark.parametrize("bad_value", ["-1", "256", "300"])
+def test_script_fails_with_invalid_gray_threshold(bad_value: str) -> None:
+    """验证非法灰度阈值会导致脚本失败。"""
+    result = _run_script("--invalid-gray-threshold", bad_value)
+    info = _format_result_info(f"invalid_gray_threshold_{bad_value}", result)
+    print("\n[functional] 非法 invalid_gray_threshold 运行摘要:\n" + info)
+
+    assert result.returncode != 0, info
+    assert "invalid_gray_threshold 必须在 0 到 255 之间。" in result.stderr or "invalid_gray_threshold 必须在 0 到 255 之间。" in result.stdout, info
+
+
+@pytest.mark.parametrize("bad_value", ["0", "-5", "-0.1"])
+def test_script_fails_with_invalid_radius(bad_value: str) -> None:
+    """验证非法半径值会导致脚本失败。"""
+    result = _run_script("--invalid-radius", bad_value)
+    info = _format_result_info(f"invalid_radius_{bad_value}", result)
+    print("\n[functional] 非法 invalid_radius 运行摘要:\n" + info)
+
+    assert result.returncode != 0, info
+    assert "invalid_radius 必须是正数。" in result.stderr or "invalid_radius 必须是正数。" in result.stdout, info
+
+
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([str(Path(__file__).resolve()), "-s", "-q"]))
