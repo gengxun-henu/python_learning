@@ -286,5 +286,116 @@ def test_invalid_radius_type_rejects_invalid_values(raw: str) -> None:
     ):
         sim.invalid_radius_type(raw)
 
+
+def test_match_features_flann_returns_candidates_and_good_matches(pipeline_outputs) -> None:
+    """验证 FLANN 匹配器的输出结构和基本合理性。"""
+    des1 = pipeline_outputs["des1"]
+    des2 = pipeline_outputs["des2"]
+    candidates, good_matches = sim.match_features_flann(des1, des2)
+
+    info = {
+        "candidates": candidates,
+        "good_matches": len(good_matches),
+    }
+    print(f"\n[unit] match_features_flann 输出信息:\n{pformat(info, sort_dicts=False)}")
+
+    assert candidates > 0, info
+    assert len(good_matches) > 0, info
+    assert len(good_matches) <= candidates, info
+
+
+def test_match_features_flann_supports_custom_ratio_threshold(pipeline_outputs) -> None:
+    """验证 FLANN 匹配器的 ratio_threshold 参数生效。"""
+    des1 = pipeline_outputs["des1"]
+    des2 = pipeline_outputs["des2"]
+
+    _, good_075 = sim.match_features_flann(des1, des2, ratio_threshold=0.75)
+    _, good_090 = sim.match_features_flann(des1, des2, ratio_threshold=0.90)
+
+    info = {
+        "good_matches_075": len(good_075),
+        "good_matches_090": len(good_090),
+    }
+    print(f"\n[unit] FLANN 自定义 ratio_threshold 对比:\n{pformat(info, sort_dicts=False)}")
+
+    assert len(good_090) >= len(good_075), info
+
+
+def test_match_features_crosscheck_returns_matches(pipeline_outputs) -> None:
+    """验证 cross-check 匹配模式的输出。"""
+    des1 = pipeline_outputs["des1"]
+    des2 = pipeline_outputs["des2"]
+    candidates, matches = sim.match_features_crosscheck(des1, des2)
+
+    info = {
+        "candidates": candidates,
+        "crosscheck_matches": len(matches),
+    }
+    print(f"\n[unit] match_features_crosscheck 输出信息:\n{pformat(info, sort_dicts=False)}")
+
+    assert candidates == des1.shape[0], info
+    assert len(matches) > 0, info
+    assert len(matches) <= candidates, info
+    # cross-check 匹配结果按距离排序
+    if len(matches) >= 2:
+        assert matches[0].distance <= matches[1].distance, info
+
+
+def test_filter_with_ransac_fundamental_matrix(pipeline_outputs) -> None:
+    """验证基础矩阵 RANSAC 方法返回 3x3 矩阵。"""
+    kp1 = pipeline_outputs["kp1"]
+    kp2 = pipeline_outputs["kp2"]
+    good_matches = pipeline_outputs["good_matches"]
+
+    matrix, inlier_matches = sim.filter_with_ransac(
+        kp1, kp2, good_matches, method="fundamental"
+    )
+
+    info = {
+        "matrix_shape": None if matrix is None else tuple(matrix.shape),
+        "inlier_count": len(inlier_matches),
+        "good_matches": len(good_matches),
+    }
+    print(f"\n[unit] fundamental matrix RANSAC 输出:\n{pformat(info, sort_dicts=False)}")
+
+    assert matrix is not None, info
+    assert matrix.shape == (3, 3), info
+    assert len(inlier_matches) > 0, info
+    assert len(inlier_matches) <= len(good_matches), info
+
+
+def test_filter_with_ransac_fundamental_returns_none_when_insufficient() -> None:
+    """验证基础矩阵需要至少 8 个匹配点。"""
+    img1, img2, _ = sim.make_test_images()
+    kp1, _ = sim.detect_and_compute(img1)
+    kp2, _ = sim.detect_and_compute(img2)
+
+    matrix, inlier_matches = sim.filter_with_ransac(
+        kp1, kp2, [], method="fundamental"
+    )
+    info = {"matrix": matrix, "inlier_matches": inlier_matches}
+    print(f"\n[unit] fundamental 匹配不足时的返回:\n{pformat(info, sort_dicts=False)}")
+
+    assert matrix is None, info
+    assert inlier_matches == [], info
+
+
+def test_draw_match_image_creates_file(pipeline_outputs, tmp_path) -> None:
+    """验证 draw_match_image 能生成输出文件。"""
+    output_path = str(tmp_path / "test_draw.png")
+    sim.draw_match_image(
+        pipeline_outputs["img1"],
+        pipeline_outputs["img2"],
+        pipeline_outputs["kp1"],
+        pipeline_outputs["kp2"],
+        pipeline_outputs["inlier_matches"],
+        output_path,
+    )
+
+    import os
+    assert os.path.exists(output_path), f"输出文件不存在: {output_path}"
+    assert os.path.getsize(output_path) > 0, f"输出文件为空: {output_path}"
+    print(f"\n[unit] draw_match_image 文件大小: {os.path.getsize(output_path)} bytes")
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([str(Path(__file__).resolve()), "-s", "-q"]))

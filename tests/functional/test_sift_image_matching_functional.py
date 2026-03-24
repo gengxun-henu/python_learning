@@ -35,9 +35,14 @@ def _important_stdout_lines(stdout: str) -> list[str]:
         "图像 2 关键点数量",
         "原始候选匹配数",
         "通过 ratio test",
+        "通过 cross-check",
         "RANSAC 内点匹配数",
         "RANSAC 后内点匹配",
         "内点率",
+        "匹配器:",
+        "匹配模式:",
+        "RANSAC 方法:",
+        "匹配结果图像已保存到",
         "错误：",
     )
     return [line for line in stdout.splitlines() if any(keyword in line for keyword in keywords)]
@@ -172,6 +177,79 @@ def test_script_fails_with_invalid_radius(bad_value: str) -> None:
 
     assert result.returncode != 0, info
     assert "invalid_radius 必须是正数。" in result.stderr or "invalid_radius 必须是正数。" in result.stdout, info
+
+
+def test_script_runs_successfully_with_flann_matcher() -> None:
+    """验证 FLANN 匹配器能正常运行。"""
+    result = _run_script("--matcher", "flann")
+    info = _format_result_info("flann_matcher", result)
+    print("\n[functional] FLANN 匹配器运行摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "FLANN 匹配器" in result.stdout, info
+    assert "匹配器: flann" in result.stdout, info
+
+
+def test_script_runs_successfully_with_crosscheck_mode() -> None:
+    """验证 cross-check 匹配模式能正常运行。"""
+    result = _run_script("--match-mode", "crosscheck")
+    info = _format_result_info("crosscheck_mode", result)
+    print("\n[functional] cross-check 匹配模式运行摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "交叉验证匹配" in result.stdout, info
+    assert "匹配模式: crosscheck" in result.stdout, info
+
+
+def test_script_runs_successfully_with_fundamental_ransac() -> None:
+    """验证 fundamental 矩阵 RANSAC 方法能正常运行。"""
+    result = _run_script("--ransac-method", "fundamental")
+    info = _format_result_info("fundamental_ransac", result)
+    print("\n[functional] fundamental RANSAC 运行摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "基础矩阵" in result.stdout, info
+    assert "RANSAC 方法: fundamental" in result.stdout, info
+
+
+def test_script_runs_successfully_with_draw_matches(tmp_path) -> None:
+    """验证 --draw-matches 参数能生成匹配结果图像。"""
+    import os
+    output_path = str(tmp_path / "matches_output.png")
+    result = _run_script("--draw-matches", output_path)
+    info = _format_result_info("draw_matches", result)
+    print("\n[functional] draw-matches 运行摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "匹配结果图像已保存到" in result.stdout, info
+    assert os.path.exists(output_path), f"输出文件不存在: {output_path}"
+    assert os.path.getsize(output_path) > 0, f"输出文件为空: {output_path}"
+
+
+def test_script_runs_with_flann_and_crosscheck_ignored() -> None:
+    """验证同时指定 --matcher flann 和 --match-mode crosscheck 时 crosscheck 优先。"""
+    result = _run_script("--matcher", "flann", "--match-mode", "crosscheck")
+    info = _format_result_info("flann_crosscheck", result)
+    print("\n[functional] FLANN + crosscheck 运行摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "匹配模式: crosscheck" in result.stdout, info
+
+
+def test_script_runs_with_real_images_and_flann() -> None:
+    """使用真实图像验证 FLANN 匹配器。"""
+    img1_path = PROJECT_ROOT / "tests" / "data" / "hayabusa2" / "hyb2_onc_20180710_060508_tvf_l2a.tif"
+    img2_path = PROJECT_ROOT / "tests" / "data" / "hayabusa2" / "hyb2_onc_20180710_060852_tvf_l2a.tif"
+
+    result = _run_script(
+        "--img1", str(img1_path), "--img2", str(img2_path),
+        "--matcher", "flann",
+    )
+    info = _format_result_info("real_images_flann", result)
+    print("\n[functional] 真实图像 + FLANN 运行摘要:\n" + info)
+
+    assert result.returncode == 0, info
+    assert "匹配器: flann" in result.stdout, info
 
 
 
