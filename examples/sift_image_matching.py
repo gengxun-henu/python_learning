@@ -1,10 +1,15 @@
 """基于 SIFT + RANSAC 的图像特征匹配示例。
 
-运行方式：
-    python3 examples/sift_image_matching.py
+运行方式（两种模式）：
+
+  # 模式 1：使用内置合成图像（默认，无需任何参数）
+  python3 examples/sift_image_matching.py
+
+  # 模式 2：使用用户提供的真实图像
+  python3 examples/sift_image_matching.py --img1 path/to/image1.jpg --img2 path/to/image2.jpg
 
 本文件重点演示：
-1. 用 OpenCV 构造两幅测试图像（原图 + 透视变换图）
+1. 用 OpenCV 构造两幅测试图像（原图 + 透视变换图），或读取用户提供的图像
 2. 用 SIFT 检测关键点并提取描述子
 3. 用 BFMatcher（暴力匹配）对描述子进行匹配
 4. 用 Lowe's ratio test 筛选良好匹配
@@ -14,6 +19,9 @@
 
 from __future__ import annotations
 
+import argparse
+import sys
+
 import numpy as np
 import cv2
 
@@ -21,6 +29,35 @@ import cv2
 # ──────────────────────────────────────────────────────────────
 # 辅助函数
 # ──────────────────────────────────────────────────────────────
+
+def load_image_as_gray(path: str) -> np.ndarray:
+    """从文件加载图像并转换为灰度图。
+
+    Parameters
+    ----------
+    path : str
+        图像文件路径（支持 JPG、PNG、BMP 等 OpenCV 可读格式）。
+
+    Returns
+    -------
+    gray : np.ndarray
+        灰度图（dtype=uint8）。
+
+    Raises
+    ------
+    SystemExit
+        若文件不存在或无法读取，打印错误信息后退出程序。
+    """
+    img = cv2.imread(path)
+    if img is None:
+        print(f"错误：无法读取图像文件 '{path}'")
+        print("请检查：")
+        print("  1. 文件路径是否正确")
+        print("  2. 文件是否为有效的图像格式（JPG / PNG / BMP 等）")
+        sys.exit(1)
+
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
 
 def make_test_images(
     size: int = 400,
@@ -201,15 +238,60 @@ def filter_with_ransac(
 # 主流程
 # ──────────────────────────────────────────────────────────────
 
+def parse_args() -> argparse.Namespace:
+    """解析命令行参数。"""
+    parser = argparse.ArgumentParser(
+        description=(
+            "基于 SIFT + RANSAC 的图像特征匹配示例。\n\n"
+            "不传任何参数时，使用内置合成图像演示全流程。\n"
+            "同时指定 --img1 和 --img2 时，对用户提供的真实图像执行匹配。"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--img1",
+        metavar="路径",
+        default=None,
+        help="第一幅图像的文件路径（query 图）",
+    )
+    parser.add_argument(
+        "--img2",
+        metavar="路径",
+        default=None,
+        help="第二幅图像的文件路径（train 图）",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+
+    use_real_images = args.img1 is not None or args.img2 is not None
+
+    # 若只提供了一张图，报错退出
+    if (args.img1 is None) != (args.img2 is None):
+        print("错误：--img1 和 --img2 必须同时提供，或都不提供。")
+        print("示例：python3 examples/sift_image_matching.py --img1 a.jpg --img2 b.jpg")
+        sys.exit(1)
+
+    # ── 步骤 1：准备图像 ────────────────────────────────────────
     print("=" * 60)
-    print("1) 生成测试图像")
-    print("=" * 60)
-    img1, img2, H_true = make_test_images(size=400)
-    print(f"原图尺寸: {img1.shape}")
-    print(f"变换图尺寸: {img2.shape}")
-    print("真实单应矩阵 H_true:")
-    print(np.round(H_true, 4))
+    if use_real_images:
+        print("1) 加载用户提供的真实图像")
+        print("=" * 60)
+        img1 = load_image_as_gray(args.img1)
+        img2 = load_image_as_gray(args.img2)
+        print(f"图像 1: {args.img1}  尺寸: {img1.shape}")
+        print(f"图像 2: {args.img2}  尺寸: {img2.shape}")
+        H_true = None  # 真实图像无已知单应矩阵
+    else:
+        print("1) 生成合成测试图像（未传入 --img1/--img2，使用默认演示）")
+        print("=" * 60)
+        img1, img2, H_true = make_test_images(size=400)
+        print(f"原图尺寸: {img1.shape}")
+        print(f"变换图尺寸: {img2.shape}")
+        print("真实单应矩阵 H_true:")
+        print(np.round(H_true, 4))
 
     print("\n" + "=" * 60)
     print("2) SIFT 特征检测与描述子提取")
@@ -218,6 +300,11 @@ def main() -> None:
     kp2, des2 = detect_and_compute(img2)
     print(f"图像 1 关键点数量: {len(kp1)}")
     print(f"图像 2 关键点数量: {len(kp2)}")
+
+    if des1 is None or des2 is None:
+        print("错误：SIFT 未能提取到描述子，图像可能过于简单或分辨率过低。")
+        sys.exit(1)
+
     print(f"描述子维度: {des1.shape[1]}")
 
     print("\n" + "=" * 60)
@@ -239,9 +326,10 @@ def main() -> None:
         print("估计的单应矩阵 H_est:")
         print(np.round(H_est, 4))
 
-        # 评估估计误差
-        diff = np.abs(H_true - H_est)
-        print(f"\nH_true 与 H_est 的最大绝对差: {diff.max():.4f}")
+        # 仅在合成图像模式下才有真实单应矩阵可供对比
+        if H_true is not None:
+            diff = np.abs(H_true - H_est)
+            print(f"\nH_true 与 H_est 的最大绝对差: {diff.max():.4f}")
     else:
         print("单应矩阵估计失败。")
 
@@ -257,7 +345,8 @@ def main() -> None:
     print("你可以继续练习：")
     print("  - 修改 ratio_threshold，观察匹配数量变化")
     print("  - 修改 ransac_threshold，观察内点率变化")
-    print("  - 替换为真实图像对（同一场景不同角度/光照）")
+    print("  - 使用自己的图像对（同一场景不同角度/光照）：")
+    print("      python3 examples/sift_image_matching.py --img1 a.jpg --img2 b.jpg")
     print("  - 将结果可视化: cv2.drawMatches(...) 保存为 PNG")
 
 
