@@ -11,10 +11,11 @@
 本文件重点演示：
 1. 用 OpenCV 构造两幅测试图像（原图 + 透视变换图），或读取用户提供的图像
 2. 用 SIFT 检测关键点并提取描述子
-3. 用 BFMatcher（暴力匹配）对描述子进行匹配
-4. 用 Lowe's ratio test 筛选良好匹配
-5. 用 RANSAC 估计单应矩阵，过滤离群点（outliers）
-6. 打印各阶段匹配数量，观察 RANSAC 的过滤效果
+3. 根据灰度阈值和半径过滤关键点（过滤掉靠近低灰度像素的特征点）
+4. 用 BFMatcher（暴力匹配）对描述子进行匹配
+5. 用 Lowe's ratio test 筛选良好匹配
+6. 用 RANSAC 估计单应矩阵，过滤离群点（outliers）
+7. 打印各阶段匹配数量，观察过滤效果
 
 自动化测试：
 - 单元测试：`tests/unit/test_sift_image_matching_unit.py`
@@ -22,7 +23,9 @@
 - 建议在仓库根目录并激活 `conda asp360_new` 后运行：
     `python -m pytest tests/unit/test_sift_image_matching_unit.py tests/functional/test_sift_image_matching_functional.py -q`
 
-修改记录, Gengxun, 2026-03-24: 增加ratio-threshold参数自定义功能，以及相应的功能测试和非法值测试。
+修改记录:
+- Gengxun, 2026-03-24: 增加 ratio-threshold 参数自定义功能，以及相应的功能测试和非法值测试。
+- Gengxun, 2026-03-24: 增加 invalid-gray-threshold 和 invalid-radius 参数，用于过滤靠近低灰度像素的特征点。
 """
 
 from __future__ import annotations
@@ -156,6 +159,77 @@ def detect_and_compute(
     return kp, des
 
 
+def filter_keypoints_by_gray(
+    img: np.ndarray,
+    kp: list[cv2.KeyPoint],
+    des: np.ndarray,
+    invalid_gray_threshold: float = 10.0,
+    invalid_radius: float = 5.0,
+) -> tuple[list[cv2.KeyPoint], np.ndarray]:
+    """根据灰度阈值和半径过滤关键点。
+
+    过滤掉那些距离无效灰度值（低于阈值的像素）太近的特征点。
+
+    Parameters
+    ----------
+    img : np.ndarray
+        输入灰度图。
+    kp : list[cv2.KeyPoint]
+        待过滤的关键点列表。
+    des : np.ndarray
+        对应的描述子矩阵，形状 (N, 128)。
+    invalid_gray_threshold : float
+        灰度阈值，像素值小于此阈值时认为是无效值，默认 10.0。
+    invalid_radius : float
+        无效值半径（像素），特征点距离无效值小于此半径时将被过滤，默认 5.0。
+
+    Returns
+    -------
+    filtered_kp : list[cv2.KeyPoint]
+        过滤后的关键点列表。
+    filtered_des : np.ndarray
+        过滤后的描述子矩阵。
+    """
+    if des is None or len(kp) == 0:
+        return kp, des
+
+    # 创建无效像素掩码（灰度值 < 阈值的像素）
+    invalid_mask = img < invalid_gray_threshold
+
+    # 如果没有无效像素，直接返回原始关键点
+    if not np.any(invalid_mask):
+        return kp, des
+
+    # 获取所有无效像素的坐标
+    invalid_y, invalid_x = np.where(invalid_mask)
+    invalid_coords = np.column_stack((invalid_x, invalid_y))
+
+    # 过滤关键点
+    filtered_kp = []
+    filtered_indices = []
+
+    for i, keypoint in enumerate(kp):
+        x, y = keypoint.pt
+
+        # 计算该关键点到所有无效像素的距离
+        distances = np.sqrt(
+            (invalid_coords[:, 0] - x) ** 2 + (invalid_coords[:, 1] - y) ** 2
+        )
+
+        # 如果最近距离大于等于半径，则保留该关键点
+        if distances.min() >= invalid_radius:
+            filtered_kp.append(keypoint)
+            filtered_indices.append(i)
+
+    # 过滤描述子
+    if len(filtered_indices) > 0:
+        filtered_des = des[filtered_indices]
+    else:
+        filtered_des = np.array([]).reshape(0, des.shape[1]) if des is not None else None
+
+    return filtered_kp, filtered_des
+
+
 def match_features(
     des1: np.ndarray,
     des2: np.ndarray,
@@ -265,7 +339,7 @@ def ransac_threshold_type(value: str) -> float:
     Raises:
     argparse.ArgumentTypeError
         如果输入无法转换为正浮点数，或值不合法（<=0），则抛出异常。
-    """    
+    """
     try:
         threshold = float(value)
     except ValueError as exc:
@@ -275,6 +349,64 @@ def ransac_threshold_type(value: str) -> float:
         raise argparse.ArgumentTypeError("ransac_threshold 必须是正数。")
 
     return threshold
+
+
+def invalid_gray_threshold_type(value: str) -> float:
+    """解析并校验灰度阈值参数。
+
+    Parameters
+    ----------
+    value : str
+        命令行传入的灰度阈值字符串。
+
+    Returns
+    -------
+    float
+        转换并校验后的灰度阈值，要求位于 [0, 255] 区间内。
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        当输入不是合法浮点数或超出允许范围时抛出。
+    """
+    try:
+        threshold = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("invalid_gray_threshold 必须是浮点数。") from exc
+
+    if not (0.0 <= threshold <= 255.0):
+        raise argparse.ArgumentTypeError("invalid_gray_threshold 必须在 0 到 255 之间。")
+
+    return threshold
+
+
+def invalid_radius_type(value: str) -> float:
+    """解析并校验无效值半径参数。
+
+    Parameters
+    ----------
+    value : str
+        命令行传入的半径字符串。
+
+    Returns
+    -------
+    float
+        转换并校验后的半径值，要求大于 0。
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        当输入不是合法浮点数或小于等于 0 时抛出。
+    """
+    try:
+        radius = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("invalid_radius 必须是浮点数。") from exc
+
+    if radius <= 0.0:
+        raise argparse.ArgumentTypeError("invalid_radius 必须是正数。")
+
+    return radius
 
 # ──────────────────────────────────────────────────────────────
 # 主流程
@@ -316,6 +448,20 @@ def parse_args() -> argparse.Namespace:
         type=ransac_threshold_type,
         default=5.0,
         help="RANSAC 重投影误差阈值（像素），默认 5.0",
+    )
+    parser.add_argument(
+        "--invalid-gray-threshold",
+        metavar="浮点数",
+        type=invalid_gray_threshold_type,
+        default=10.0,
+        help="灰度阈值，像素值小于此阈值时认为是无效值（0-255），默认 10.0",
+    )
+    parser.add_argument(
+        "--invalid-radius",
+        metavar="浮点数",
+        type=invalid_radius_type,
+        default=5.0,
+        help="无效值半径（像素），特征点距离无效值小于此半径时将被过滤，默认 5.0",
     )
     return parser.parse_args()
 
@@ -360,8 +506,8 @@ def main() -> None:
     print("=" * 60)
     kp1, des1 = detect_and_compute(img1)
     kp2, des2 = detect_and_compute(img2)
-    print(f"图像 1 关键点数量: {len(kp1)}")
-    print(f"图像 2 关键点数量: {len(kp2)}")
+    print(f"图像 1 关键点数量（检测后）: {len(kp1)}")
+    print(f"图像 2 关键点数量（检测后）: {len(kp2)}")
 
     if des1 is None or des2 is None:
         print("错误：SIFT 未能提取到描述子，图像可能过于简单或分辨率过低。")
@@ -369,8 +515,27 @@ def main() -> None:
 
     print(f"描述子维度: {des1.shape[1]}")
 
+    # 灰度过滤步骤
     print("\n" + "=" * 60)
-    print("3) BFMatcher 暴力匹配 + Lowe's ratio test")
+    print("3) 根据灰度阈值过滤关键点")
+    print("=" * 60)
+    print(f"invalid_gray_threshold: {args.invalid_gray_threshold}")
+    print(f"invalid_radius: {args.invalid_radius}")
+    kp1, des1 = filter_keypoints_by_gray(
+        img1, kp1, des1, args.invalid_gray_threshold, args.invalid_radius
+    )
+    kp2, des2 = filter_keypoints_by_gray(
+        img2, kp2, des2, args.invalid_gray_threshold, args.invalid_radius
+    )
+    print(f"图像 1 关键点数量（过滤后）: {len(kp1)}")
+    print(f"图像 2 关键点数量（过滤后）: {len(kp2)}")
+
+    if des1 is None or des2 is None or len(kp1) == 0 or len(kp2) == 0:
+        print("错误：灰度过滤后没有剩余关键点，请尝试调整 invalid_gray_threshold 或 invalid_radius。")
+        sys.exit(1)
+
+    print("\n" + "=" * 60)
+    print("4) BFMatcher 暴力匹配 + Lowe's ratio test")
     print("=" * 60)
     print(f"ratio_threshold: {args.ratio_threshold}")
     all_matches, good_matches = match_features(des1, des2, ratio_threshold=args.ratio_threshold)
@@ -378,7 +543,7 @@ def main() -> None:
     print(f"通过 ratio test 的良好匹配数:    {len(good_matches)} 对")
 
     print("\n" + "=" * 60)
-    print("4) RANSAC 过滤离群点")
+    print("5) RANSAC 过滤离群点")
     print("=" * 60)
     H_est, inlier_matches = filter_with_ransac(
         kp1, kp2, good_matches, ransac_threshold=args.ransac_threshold
@@ -397,7 +562,7 @@ def main() -> None:
         print("单应矩阵估计失败。")
 
     print("\n" + "=" * 60)
-    print("5) 小结")
+    print("6) 小结")
     print("=" * 60)
     print(f"  关键点（img1 / img2）: {len(kp1)} / {len(kp2)}")
     print(f"  ratio test 后良好匹配: {len(good_matches)}")
