@@ -52,6 +52,14 @@ import cv2
 
 
 # ──────────────────────────────────────────────────────────────
+# FLANN 匹配器常量
+# ──────────────────────────────────────────────────────────────
+FLANN_INDEX_KDTREE = 1
+FLANN_TREES = 5
+FLANN_CHECKS = 50
+
+
+# ──────────────────────────────────────────────────────────────
 # 辅助函数
 # ──────────────────────────────────────────────────────────────
 
@@ -303,8 +311,8 @@ def match_features_flann(
     good_matches : list[cv2.DMatch]
         通过 ratio test 筛选后的良好匹配。
     """
-    index_params = {"algorithm": 1, "trees": 5}  # FLANN_INDEX_KDTREE = 1
-    search_params = {"checks": 50}
+    index_params = {"algorithm": FLANN_INDEX_KDTREE, "trees": FLANN_TREES}
+    search_params = {"checks": FLANN_CHECKS}
     flann = cv2.FlannBasedMatcher(index_params, search_params)
     all_pairs = flann.knnMatch(des1, des2, k=2)
 

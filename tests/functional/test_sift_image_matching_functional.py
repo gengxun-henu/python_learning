@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -214,7 +215,6 @@ def test_script_runs_successfully_with_fundamental_ransac() -> None:
 
 def test_script_runs_successfully_with_draw_matches(tmp_path) -> None:
     """验证 --draw-matches 参数能生成匹配结果图像。"""
-    import os
     output_path = str(tmp_path / "matches_output.png")
     result = _run_script("--draw-matches", output_path)
     info = _format_result_info("draw_matches", result)
