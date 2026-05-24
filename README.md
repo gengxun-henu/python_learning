@@ -2,6 +2,15 @@
 
 这个仓库包含若干 Python 学习脚本、示例程序与配套测试。当前与计算机视觉相关的示例是 `examples/sift_image_matching.py`，它演示了基于 **SIFT + BFMatcher + Lowe's ratio test + RANSAC** 的图像特征匹配流程。
 
+## 深度学习学习项目
+
+仓库中还包含两个独立的深度学习学习项目：
+
+- `learning_transformer/`：从零实现简化版 Transformer，包含 Self-Attention、Multi-Head Attention、位置编码、前馈网络和序列预测训练示例。
+- `learning_gnn/`：从零实现 GCN、GAT、GraphSAGE，并提供 Cora 节点分类训练示例。
+
+这两个项目推荐使用本机 conda 环境 `deep-learning` 运行，已验证环境为 `torch==2.5.1`，CPU 可运行。详细说明见各自目录下的 `README.md`。
+
 ## 环境准备
 
 推荐使用你当前已经验证通过的 conda 环境：`asp360_new`。
